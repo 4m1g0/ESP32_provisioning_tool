@@ -7,6 +7,15 @@ import sys
 from pathlib import Path
 import serial.tools.list_ports
 
+def erase_flash(port):
+    cmd = [
+        "esptool.py", "--chip", "esp32", "--port", port, "erase_flash"
+    ]
+    print("Executing command:", " ".join(cmd))
+    result = subprocess.run(cmd, capture_output=True, text=True)
+    print("Output:")
+    print(result.stdout)
+
 def wait_for_disconnect(port_name):
     while True:
         ports = [
@@ -19,9 +28,7 @@ def wait_for_disconnect(port_name):
             break
         time.sleep(0.5)
     
-
 def list_serial_ports():
-    """Lists available serial ports that are likely ESP32 devices and allows user selection."""
     ports = [
         port for port in serial.tools.list_ports.comports()
         if any(keyword in port.description.lower() for keyword in ["usb", "uart", "cp210"])
@@ -46,25 +53,14 @@ def list_serial_ports():
             pass
         print("Invalid selection. Try again.")
 
-    
-    while True:
-        try:
-            choice = int(input("Select a port by index: "))
-            if 0 <= choice < len(ports):
-                return ports[choice].device
-        except ValueError:
-            pass
-        print("Invalid selection. Try again.")
-
 def flash_firmware(port, firmware):
-    """Flashes the firmware to the ESP32 using esptool, with debug output and retry delay."""
     cmd = [
         "esptool.py", "--chip", "esp32", "--port", port, "--baud", "460800",
         "--before", "default_reset", "--after", "hard_reset", "write_flash", "-z",
         "--flash_mode", "dio", "--flash_freq", "40m", "--flash_size", "detect",
         "0x1000", "bootloader.bin",
         "0x8000", "partitions.bin",
-        "0x10000", "firmware.bin"
+        "0x10000", firmware
     ]
     print("Executing command:", " ".join(cmd))
     result = subprocess.run(cmd, capture_output=True, text=True)
@@ -72,42 +68,44 @@ def flash_firmware(port, firmware):
     print(result.stdout)
     if result.returncode != 0:
         print("Flashing error:", result.stderr)
-        time.sleep(5)  # Add delay before retrying
+        time.sleep(5)
         return False
     return True
 
-def wait_for_provisioning(ser, timeout=60):
-    """Waits for the ESP32 to request provisioning."""
+def wait_for_provisioning(ser, port):
     start_time = time.time()
-    while time.time() - start_time < timeout:
+    while time.time() - start_time < 60:
         line = ser.readline().decode(errors='ignore').strip()
-        print("Serial Output:", line)  # Debug output
+        print("Serial Output:", line)
         if "Provisioning" in line:
             return True
+        if "Provisioned" in line:
+            choice = input("Device already provisioned. Erase flash and restart? (y/n): ")
+            if choice.lower() == 'y':
+                erase_flash(port)
+                return False
     return False
 
 def send_keys(ser, keys):
-    """Sends the encryption keys to the ESP32 via Serial."""
-    keys_str = ",".join(keys) + "\r\n"  # Ensure proper line ending
+    keys_str = ",".join(keys) + "\r\n"
     print("Sending keys:", keys_str.strip())
     
-    ser.reset_input_buffer()  # Clear input buffer before sending
-    time.sleep(0.5)  # Ensure ESP32 is ready to receive
+    ser.reset_input_buffer()
+    time.sleep(0.5)
     ser.write(keys_str.encode())
     ser.flush()
-    ser.readline() # Remove trailing bytes from the buffer
+    ser.readline()
     
     start_time = time.time()
-    while time.time() - start_time < 30:  # Waits up to 30s
+    while time.time() - start_time < 30:
         line = ser.readline().decode(errors='ignore').strip()
         if len(line) > 0:
-            print("Serial Output:", line)  # Debug output
+            print("Serial Output:", line)
         if "Provisioned" in line:
             return True
     return False
 
 def update_csv(csv_file, row_index):
-    """Marks a device as provisioned in the CSV file."""
     rows = []
     with open(csv_file, newline='') as f:
         reader = list(csv.reader(f))
@@ -118,28 +116,26 @@ def update_csv(csv_file, row_index):
         writer.writerows(rows)
 
 def signal_handler(sig, frame):
-    """Handles Ctrl+C gracefully."""
     print("\nProcess interrupted. Exiting gracefully...")
     sys.exit(0)
 
 def main(csv_file, firmware):
-    """Main process for flashing and provisioning multiple devices."""
-    
     with open(csv_file, newline='') as f:
         reader = list(csv.reader(f))
     
     for i, row in enumerate(reader):
-        if len(row) >= 4 and row[3] == "Provisioned":
-            continue  # Already provisioned
+        if row[-1] == "Provisioned":
+            continue
         
-        clave1, clave2, clave3 = row[:3]
+        claves = row if "Provisioned" not in row else row[:-1]
+        
         while True:
             port = list_serial_ports()
-            if port == None:
+            if port is None:
                 print("No port found, waiting for device...")
-                while port == None:
+                while port is None:
                     port = list_serial_ports()
-                    time.sleep(0.3) 
+                    time.sleep(0.3)
                     continue
             
             print(f"Flashing firmware on {port}...")
@@ -151,23 +147,24 @@ def main(csv_file, firmware):
             try:
                 with serial.Serial(port, 115200, timeout=10) as ser:
                     print("Waiting for provisioning...")
-                    if not wait_for_provisioning(ser):
-                        print("Provisioning request not detected. Retrying...")
+                    if not wait_for_provisioning(ser, port):
+                        print("Restarting process...")
                         continue
                     
                     print("Sending keys...")
-                    if send_keys(ser, [clave1, clave2, clave3]):
+                    if send_keys(ser, claves):
                         print("Successfully provisioned.")
                         update_csv(csv_file, i)
-                        print("Please disconnect disconnect the current device...")
+                        print("Please disconnect the current device...")
                         wait_for_disconnect(port)
                         break
                     else:
                         print("Provisioning failed. Retrying...")
-                        time.sleep(5)  # Delay before retrying
+                        time.sleep(5)
             except serial.SerialException as e:
                 print(f"Serial error: {e}")
-                time.sleep(5)  # Delay before retrying
+                time.sleep(5)
+
 
 if __name__ == "__main__":
     import argparse
@@ -176,7 +173,7 @@ if __name__ == "__main__":
     parser.add_argument("--firmware", default="firmware.bin", help="Firmware .bin file (default: firmware.bin)")
     args = parser.parse_args()
     
-    signal.signal(signal.SIGINT, signal_handler)  # Handle Ctrl+C
+    signal.signal(signal.SIGINT, signal_handler)
     
     main(args.csv_file, args.firmware)
 
