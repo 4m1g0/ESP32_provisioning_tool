@@ -1,6 +1,12 @@
 #include <Arduino.h>
 #include <Preferences.h>
 
+uint32_t devAddr  =   0x0000000000000000;
+uint8_t fNwkSIntKey[16]; 
+uint8_t sNwkSIntKey[16]; 
+uint8_t nwkSEncKey[16]; 
+uint8_t appSKey[16]; 
+
 Preferences preferences;
 void provisioning();
 
@@ -9,8 +15,71 @@ void setup() {
 }
 
 void loop() {
+    
+    Serial.print("fNwkSIntKey en bytes: ");
+    for (size_t i = 0; i < 16; i++) {
+        Serial.print("0x");
+        if (fNwkSIntKey[i] < 0x10) Serial.print("0");  // Asegurar formato 0x0X
+        Serial.print(fNwkSIntKey[i], HEX);
+        Serial.print(" ");
+    }
+    Serial.println();
+
+    Serial.print("sNwkSIntKey en bytes: ");
+    for (size_t i = 0; i < 16; i++) {
+        Serial.print("0x");
+        if (sNwkSIntKey[i] < 0x10) Serial.print("0");  // Asegurar formato 0x0X
+        Serial.print(sNwkSIntKey[i], HEX);
+        Serial.print(" ");
+    }
+    Serial.println();
+
+    Serial.print("nwkSEncKey en bytes: ");
+    for (size_t i = 0; i < 16; i++) {
+        Serial.print("0x");
+        if (nwkSEncKey[i] < 0x10) Serial.print("0");  // Asegurar formato 0x0X
+        Serial.print(nwkSEncKey[i], HEX);
+        Serial.print(" ");
+    }
+    Serial.println();
+
+    Serial.print("appSKey en bytes: ");
+    for (size_t i = 0; i < 16; i++) {
+        Serial.print("0x");
+        if (appSKey[i] < 0x10) Serial.print("0");  // Asegurar formato 0x0X
+        Serial.print(appSKey[i], HEX);
+        Serial.print(" ");
+    }
+    Serial.println();
+
+
+    Serial.print("devAddr en bytes: ");
+    Serial.println(devAddr, HEX);
+
+    delay(3000);
 }
 
+
+
+
+
+
+
+
+void hexStringToByteArray(String hexString, uint8_t *byteArray, size_t byteArraySize) {
+    for (size_t i = 0; i < byteArraySize; i++) {
+        byteArray[i] = strtoul(hexString.substring(i * 2, i * 2 + 2).c_str(), nullptr, 16);
+    }
+}
+
+uint32_t hexStringToUint32(String hexString) {
+    uint32_t value = 0;
+    for (size_t i = 0; i < 4; i++) {  // 4 bytes en un uint32_t
+        value <<= 8;  // Desplazar 8 bits a la izquierda
+        value |= strtoul(hexString.substring(i * 2, i * 2 + 2).c_str(), nullptr, 16);
+    }
+    return value;
+}
 
 void provisioning() {
     Serial.begin(115200);
@@ -67,5 +136,11 @@ void provisioning() {
         Serial.print("sNwkSIntKey: "); Serial.println(preferences.getString("sNwkSIntKey", ""));
         Serial.print("nwkSEncKey: "); Serial.println(preferences.getString("nwkSEncKey", ""));
         Serial.print("appSKey: "); Serial.println(preferences.getString("appSKey", ""));
+
+        hexStringToByteArray(preferences.getString("fNwkSIntKey", ""), fNwkSIntKey, 16);
+        hexStringToByteArray(preferences.getString("sNwkSIntKey", ""), sNwkSIntKey, 16);
+        hexStringToByteArray(preferences.getString("nwkSEncKey", ""), nwkSEncKey, 16);
+        hexStringToByteArray(preferences.getString("appSKey", ""), appSKey, 16);
+        devAddr = hexStringToUint32(preferences.getString("devAddr", ""));
     }
 }
