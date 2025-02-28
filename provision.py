@@ -53,9 +53,9 @@ def list_serial_ports():
             pass
         print("Invalid selection. Try again.")
 
-def flash_firmware(port, firmware):
+def flash_firmware(port, firmware, chip):
     cmd = [
-        "esptool.py", "--chip", "esp32", "--port", port, "--baud", "460800",
+        "esptool.py", "--chip", chip, "--port", port, "--baud", "460800",
         "--before", "default_reset", "--after", "hard_reset", "write_flash", "-z",
         "--flash_mode", "dio", "--flash_freq", "40m", "--flash_size", "detect",
         "0x1000", "bootloader.bin",
@@ -119,7 +119,7 @@ def signal_handler(sig, frame):
     print("\nProcess interrupted. Exiting gracefully...")
     sys.exit(0)
 
-def main(csv_file, firmware):
+def main(csv_file, firmware, chip):
     with open(csv_file, newline='') as f:
         reader = list(csv.reader(f))
     
@@ -139,7 +139,7 @@ def main(csv_file, firmware):
                     continue
             
             print(f"Flashing firmware on {port}...")
-            if not flash_firmware(port, firmware):
+            if not flash_firmware(port, firmware, chip):
                 print("Retrying flashing...")
                 continue
             
@@ -171,9 +171,10 @@ if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Flash and provision ESP32 devices in sequence")
     parser.add_argument("--csv_file", default="keys.csv", help="CSV file containing the keys (default: keys.csv)")
     parser.add_argument("--firmware", default="firmware.bin", help="Firmware .bin file (default: firmware.bin)")
+    parser.add_argument("--chip", default="esp32s3", help="type of esp32 chip (default: esp32s3) Options: esp32, esp32s3")
     args = parser.parse_args()
     
     signal.signal(signal.SIGINT, signal_handler)
     
-    main(args.csv_file, args.firmware)
+    main(args.csv_file, args.firmware, args.chip)
 

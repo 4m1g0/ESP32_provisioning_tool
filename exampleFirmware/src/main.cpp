@@ -56,7 +56,7 @@ void loop() {
     Serial.print("devAddr en bytes: ");
     Serial.println(devAddr, HEX);
 
-    delay(3000);
+    delay(3000)
 }
 
 
